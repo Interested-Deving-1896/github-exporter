@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"github.com/google/go-github/v71/github"
 	"net/http"
 
 	"github.com/githubexporter/github-exporter/config"
@@ -12,6 +13,7 @@ import (
 // user defined runtime configuration when the Collect method is called.
 type Exporter struct {
 	APIMetrics map[string]*prometheus.Desc
+	Client     *github.Client
 	config.Config
 }
 
@@ -21,13 +23,9 @@ type Data []Datum
 
 // Datum is used to store data from all the relevant endpoints in the API
 type Datum struct {
-	Name  string `json:"name"`
-	Owner struct {
-		Login string `json:"login"`
-	} `json:"owner"`
-	License struct {
-		Key string `json:"key"`
-	} `json:"license"`
+	Name       string  `json:"name"`
+	Owner      User    `json:"owner"`
+	License    License `json:"license"`
 	Language   string  `json:"language"`
 	Archived   bool    `json:"archived"`
 	Private    bool    `json:"private"`
@@ -41,6 +39,10 @@ type Datum struct {
 	Pulls      []Pull
 }
 
+type License struct {
+	Key string `json:"key"`
+}
+
 type Release struct {
 	Name   string  `json:"name"`
 	Assets []Asset `json:"assets"`
@@ -49,9 +51,11 @@ type Release struct {
 
 type Pull struct {
 	Url  string `json:"url"`
-	User struct {
-		Login string `json:"login"`
-	} `json:"user"`
+	User User
+}
+
+type User struct {
+	Login string `json:"login"`
 }
 
 type Asset struct {

@@ -1,11 +1,11 @@
 package exporter
 
 import (
-	"path"
-	"strconv"
-
+	"context"
+	"github.com/google/go-github/v71/github"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"strings"
 )
 
 // Describe - loops through the API metrics and passes them to prometheus.Describe
@@ -18,76 +18,177 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 }
 
 // Collect function, called on by Prometheus Client library
-// This function is called when a scrape is peformed on the /metrics page
+// This function is called when a scrape is performed on the /metrics endpoint
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
-	data := []*Datum{}
-	var err error
+	client := github.NewClient(nil)
+	ctx := context.Background()
 
-	if e.Config.GitHubApp() {
-		needReAuth, err := e.isTokenExpired()
-		if err != nil {
-			log.Errorf("Error checking token expiration status: %v", err)
-			return
-		}
-		if needReAuth {
-			err = e.Config.SetAPITokenFromGitHubApp()
-			if err != nil {
-				log.Errorf("Error authenticating with GitHub app: %v", err)
-			}
-		}
-	}
-	// Scrape the Data from Github
-	if len(e.TargetURLs()) > 0 {
-		data, err = e.gatherData()
-		if err != nil {
-			log.Errorf("Error gathering Data from remote API: %v", err)
-			return
-		}
-	}
+	log.Info("collecting metrics")
+	var data []*Datum
 
-	rates, err := e.getRates()
+	repoMetrics, err := e.getRepoMetrics(ctx)
 	if err != nil {
-		log.Errorf("Error gathering Rates from remote API: %v", err)
+		log.Errorf("Error fetching repository metrics: %v", err)
 		return
+	}
+
+	data = append(data, repoMetrics...)
+
+	// TODO - get all rate limits, not just core
+	rates, _, err := client.RateLimit.Get(ctx)
+	if err != nil {
+		log.Errorf("Error fetching rate limits: %v", err)
+		return
+	}
+
+	r := &RateLimits{
+		Limit:     float64(rates.Core.Limit),
+		Remaining: float64(rates.Core.Remaining),
+		Reset:     float64(rates.Core.Reset.Unix()),
 	}
 
 	// Set prometheus gauge metrics using the data gathered
-	err = e.processMetrics(data, rates, ch)
-
-	if err != nil {
-		log.Error("Error Processing Metrics", err)
-		return
-	}
-
-	log.Info("All Metrics successfully collected")
-
+	err = e.processMetrics(data, r, ch)
 }
 
-func (e *Exporter) isTokenExpired() (bool, error) {
-	u := *e.APIURL()
-	u.Path = path.Join(u.Path, "rate_limit")
+// getOrganisationMetrics fetches metrics for the configured organisations
+func (e *Exporter) getOrganisationMetrics(ctx context.Context) ([]*Datum, error) {
+	var data []*Datum
+	for _, o := range e.Config.Organisations {
+		repos, _, err := e.Client.Repositories.ListByOrg(ctx, o, nil)
+		if err != nil {
+			log.Errorf("Error fetching organisation repositories: %v", err)
+			continue
+		}
+		for _, repo := range repos {
+			d, err := e.parseRepo(ctx, *repo)
+			if err != nil {
+				log.Errorf("Error parsing organisation data: %v", err)
+				continue
+			}
+			data = append(data, d)
+		}
+	}
 
-	resp, err := getHTTPResponse(u.String(), e.APIToken())
+	return data, nil
+}
 
+// getUserMetrics fetches metrics for the configured users
+func (e *Exporter) getUserMetrics(ctx context.Context) ([]*Datum, error) {
+	var data []*Datum
+	for _, u := range e.Config.Users {
+		repos, _, err := e.Client.Repositories.ListByUser(ctx, u, nil)
+		if err != nil {
+			log.Errorf("Error fetching user data: %v", err)
+			continue
+		}
+
+		for _, repo := range repos {
+			d, err := e.parseRepo(ctx, *repo)
+			if err != nil {
+				log.Errorf("Error parsing user data: %v", err)
+				continue
+			}
+			data = append(data, d)
+		}
+	}
+
+	return data, nil
+}
+
+// getRepoMetrics fetches metrics for the configured repositories
+func (e *Exporter) getRepoMetrics(ctx context.Context) ([]*Datum, error) {
+	var data []*Datum
+	for _, m := range e.Config.Repositories {
+		// Split the repository string into owner and name
+		parts := strings.Split(m, "/")
+		if len(parts) != 2 {
+			log.Errorf("Invalid repository format: %s", m)
+			continue
+		}
+
+		repo, _, err := e.Client.Repositories.Get(ctx, parts[0], parts[1])
+		if err != nil {
+			log.Errorf("Error fetching repository data: %v", err)
+			continue
+		}
+
+		d, err := e.parseRepo(ctx, *repo)
+		if err != nil {
+			log.Errorf("Error parsing repository data: %v", err)
+			continue
+		}
+
+		data = append(data, d)
+	}
+
+	return data, nil
+}
+
+func (e *Exporter) parseRepo(ctx context.Context, repo github.Repository) (*Datum, error) {
+	repoOwner := repo.GetOwner().GetLogin()
+	repoName := repo.GetName()
+
+	rel, _, err := e.Client.Repositories.ListReleases(ctx, repoOwner, repoName, nil)
 	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	// Triggers if rate-limiting isn't enabled on private Github Enterprise installations
-	if resp.StatusCode == 404 {
-		return false, nil
+		log.Errorf("Error fetching releases: %v", err)
+		return nil, err
 	}
 
-	limit, err := strconv.ParseFloat(resp.Header.Get("X-RateLimit-Limit"), 64)
+	var releases []Release
+	for _, release := range rel {
+		var assets []Asset
+		for _, asset := range release.Assets {
+			a := Asset{
+				Name: asset.GetName(),
+			}
+			assets = append(assets, a)
+		}
 
+		r := Release{
+			Name:   release.GetName(),
+			Tag:    release.GetTagName(),
+			Assets: assets,
+		}
+		releases = append(releases, r)
+	}
+
+	pullRequests, _, err := e.Client.PullRequests.List(ctx, repoOwner, repoName, nil)
 	if err != nil {
-		return false, err
+		log.Errorf("Error fetching pull requests: %v", err)
+		return nil, err
+	}
+	var pulls []Pull
+	for _, pr := range pullRequests {
+		p := Pull{
+			Url: pr.GetURL(),
+			User: User{
+				Login: pr.GetUser().GetLogin(),
+			},
+		}
+		pulls = append(pulls, p)
 	}
 
-	defaultRateLimit := e.Config.GitHubRateLimit()
-	if limit < defaultRateLimit {
-		return true, nil
+	d := &Datum{
+		Name: repo.GetName(),
+		Owner: User{
+			Login: repo.GetOwner().GetLogin(),
+		},
+		License: License{
+			Key: repo.GetLicense().GetKey(),
+		},
+		Language:   repo.GetLanguage(),
+		Archived:   repo.GetArchived(),
+		Private:    repo.GetPrivate(),
+		Fork:       repo.GetFork(),
+		Forks:      float64(repo.GetForksCount()),
+		Stars:      float64(repo.GetStargazersCount()),
+		OpenIssues: float64(repo.GetOpenIssuesCount()),
+		Watchers:   float64(repo.GetSubscribersCount()),
+		Size:       float64(repo.GetSize()),
+		Releases:   releases,
+		Pulls:      pulls,
 	}
-	return false, nil
 
+	return d, nil
 }

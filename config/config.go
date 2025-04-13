@@ -17,10 +17,12 @@ import (
 // Config struct holds all the runtime configuration for the application
 type Config struct {
 	*cfg.BaseConfig
-	apiUrl                  *url.URL
-	repositories            []string
-	organisations           []string
-	users                   []string
+	apiUrl *url.URL
+
+	Repositories  []string
+	Organisations []string
+	Users         []string
+
 	apiToken                string
 	targetURLs              []string
 	gitHubApp               bool
@@ -148,19 +150,19 @@ func (c *Config) SetAPIURL(u string) error {
 
 // Overrides the entire list of repositories
 func (c *Config) SetRepositories(repos []string) {
-	c.repositories = repos
+	c.Repositories = repos
 	c.setScrapeURLs()
 }
 
 // Overrides the entire list of organisations
 func (c *Config) SetOrganisations(orgs []string) {
-	c.organisations = orgs
+	c.Organisations = orgs
 	c.setScrapeURLs()
 }
 
 // Overrides the entire list of users
 func (c *Config) SetUsers(users []string) {
-	c.users = users
+	c.Users = users
 	c.setScrapeURLs()
 }
 
@@ -226,13 +228,13 @@ func (c *Config) setScrapeURLs() error {
 
 	opts := map[string]string{"per_page": "100"} // Used to set the Github API to return 100 results per page (max)
 
-	if len(c.repositories) == 0 && len(c.organisations) == 0 && len(c.users) == 0 {
+	if len(c.Repositories) == 0 && len(c.Organisations) == 0 && len(c.Users) == 0 {
 		log.Info("No targets specified. Only rate limit endpoint will be scraped")
 	}
 
 	// Append repositories to the array
-	if len(c.repositories) > 0 {
-		for _, x := range c.repositories {
+	if len(c.Repositories) > 0 {
+		for _, x := range c.Repositories {
 			y := *c.apiUrl
 			y.Path = path.Join(y.Path, "repos", x)
 			q := y.Query()
@@ -246,8 +248,8 @@ func (c *Config) setScrapeURLs() error {
 
 	// Append github orginisations to the array
 
-	if len(c.organisations) > 0 {
-		for _, x := range c.organisations {
+	if len(c.Organisations) > 0 {
+		for _, x := range c.Organisations {
 			y := *c.apiUrl
 			y.Path = path.Join(y.Path, "orgs", x, "repos")
 			q := y.Query()
@@ -259,8 +261,8 @@ func (c *Config) setScrapeURLs() error {
 		}
 	}
 
-	if len(c.users) > 0 {
-		for _, x := range c.users {
+	if len(c.Users) > 0 {
+		for _, x := range c.Users {
 			y := *c.apiUrl
 			y.Path = path.Join(y.Path, "users", x, "repos")
 			q := y.Query()

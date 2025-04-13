@@ -1,14 +1,16 @@
 module github.com/githubexporter/github-exporter
 
-go 1.22
+go 1.23.0
+
+toolchain go1.24.2
 
 require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.11.0
+	github.com/google/go-github/v71 v71.0.0
 	github.com/infinityworks/go-common v0.0.0-20170820165359-7f20a140fd37
 	github.com/prometheus/client_golang v1.20.4
 	github.com/sirupsen/logrus v1.9.3
 	github.com/steinfletcher/apitest v1.3.8
-	github.com/tomnomnom/linkheader v0.0.0-20180905144013-02ca5825eb80
 )
 
 require (

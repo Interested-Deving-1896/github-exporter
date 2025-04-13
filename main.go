@@ -4,6 +4,7 @@ import (
 	conf "github.com/githubexporter/github-exporter/config"
 	"github.com/githubexporter/github-exporter/exporter"
 	"github.com/githubexporter/github-exporter/http"
+	"github.com/google/go-github/v71/github"
 	"github.com/infinityworks/go-common/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -24,9 +25,11 @@ func init() {
 func main() {
 	log.Info("Starting Exporter")
 
+	// TODO - support github app/github enterprise
 	exp := exporter.Exporter{
 		APIMetrics: mets,
 		Config:     applicationCfg,
+		Client:     github.NewClient(nil),
 	}
 
 	http.NewServer(exp).Start()
