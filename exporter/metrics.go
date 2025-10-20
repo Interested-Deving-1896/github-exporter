@@ -1,13 +1,29 @@
 package exporter
 
 import (
+	"fmt"
 	"strconv"
+
+	"github.com/githubexporter/github-exporter/config"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// AddMetrics - Add's all of the metrics to a map of strings, returns the map.
-func AddMetrics() map[string]*prometheus.Desc {
+func NewExporter(cfg *config.Config) (*Exporter, error) {
+	client, err := cfg.GetClient()
+	if err != nil {
+		return nil, fmt.Errorf("getting client: %w", err)
+	}
+
+	return &Exporter{
+		APIMetrics: AddMetrics(cfg),
+		Config:     *cfg,
+		Client:     client,
+	}, nil
+}
+
+// AddMetrics - Adds all the metrics to a map of strings, returns the map.
+func AddMetrics(cfg *config.Config) map[string]*prometheus.Desc {
 
 	APIMetrics := make(map[string]*prometheus.Desc)
 
@@ -46,34 +62,38 @@ func AddMetrics() map[string]*prometheus.Desc {
 		"Download count for a given release",
 		[]string{"repo", "user", "release", "name", "tag", "created_at"}, nil,
 	)
-	APIMetrics["Limit"] = prometheus.NewDesc(
-		prometheus.BuildFQName("github", "rate", "limit"),
-		"Number of API queries allowed in a 60 minute window",
-		[]string{}, nil,
-	)
-	APIMetrics["Remaining"] = prometheus.NewDesc(
-		prometheus.BuildFQName("github", "rate", "remaining"),
-		"Number of API queries remaining in the current window",
-		[]string{}, nil,
-	)
-	APIMetrics["Reset"] = prometheus.NewDesc(
-		prometheus.BuildFQName("github", "rate", "reset"),
-		"The time at which the current rate limit window resets in UTC epoch seconds",
-		[]string{}, nil,
-	)
+
+	if cfg.GitHubRateLimitEnabled {
+		rateLimitLabels := []string{"resource"}
+		APIMetrics["Limit"] = prometheus.NewDesc(
+			prometheus.BuildFQName("github", "rate", "limit"),
+			"Number of API queries allowed in a 60 minute window",
+			rateLimitLabels, nil,
+		)
+		APIMetrics["Remaining"] = prometheus.NewDesc(
+			prometheus.BuildFQName("github", "rate", "remaining"),
+			"Number of API queries remaining in the current window",
+			rateLimitLabels, nil,
+		)
+		APIMetrics["Reset"] = prometheus.NewDesc(
+			prometheus.BuildFQName("github", "rate", "reset"),
+			"The time at which the current rate limit window resets in UTC epoch seconds",
+			rateLimitLabels, nil,
+		)
+	}
 
 	return APIMetrics
 }
 
 // processMetrics - processes the response data and sets the metrics using it as a source
-func (e *Exporter) processMetrics(data []*Datum, rates *RateLimits, ch chan<- prometheus.Metric) error {
+func (e *Exporter) processMetrics(data []*Datum, rates *[]RateLimit, ch chan<- prometheus.Metric) error {
 
 	// APIMetrics - range through the data slice
 	for _, x := range data {
-		ch <- prometheus.MustNewConstMetric(e.APIMetrics["Stars"], prometheus.GaugeValue, x.Stars, x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
-		ch <- prometheus.MustNewConstMetric(e.APIMetrics["Forks"], prometheus.GaugeValue, x.Forks, x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
-		ch <- prometheus.MustNewConstMetric(e.APIMetrics["Watchers"], prometheus.GaugeValue, x.Watchers, x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
-		ch <- prometheus.MustNewConstMetric(e.APIMetrics["Size"], prometheus.GaugeValue, x.Size, x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
+		ch <- prometheus.MustNewConstMetric(e.APIMetrics["Stars"], prometheus.GaugeValue, float64(x.Stars), x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
+		ch <- prometheus.MustNewConstMetric(e.APIMetrics["Forks"], prometheus.GaugeValue, float64(x.Forks), x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
+		ch <- prometheus.MustNewConstMetric(e.APIMetrics["Watchers"], prometheus.GaugeValue, float64(x.Watchers), x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
+		ch <- prometheus.MustNewConstMetric(e.APIMetrics["Size"], prometheus.GaugeValue, float64(x.Size), x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
 
 		for _, release := range x.Releases {
 			for _, asset := range release.Assets {
@@ -85,16 +105,20 @@ func (e *Exporter) processMetrics(data []*Datum, rates *RateLimits, ch chan<- pr
 			prCount += 1
 		}
 		// issueCount = x.OpenIssue - prCount
-		ch <- prometheus.MustNewConstMetric(e.APIMetrics["OpenIssues"], prometheus.GaugeValue, (x.OpenIssues - float64(prCount)), x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
+		ch <- prometheus.MustNewConstMetric(e.APIMetrics["OpenIssues"], prometheus.GaugeValue, float64(x.OpenIssues-prCount), x.Name, x.Owner.Login, strconv.FormatBool(x.Private), strconv.FormatBool(x.Fork), strconv.FormatBool(x.Archived), x.License.Key, x.Language)
 
 		// prCount
 		ch <- prometheus.MustNewConstMetric(e.APIMetrics["PullRequestCount"], prometheus.GaugeValue, float64(prCount), x.Name, x.Owner.Login)
 	}
 
 	// Set Rate limit stats
-	ch <- prometheus.MustNewConstMetric(e.APIMetrics["Limit"], prometheus.GaugeValue, rates.Limit)
-	ch <- prometheus.MustNewConstMetric(e.APIMetrics["Remaining"], prometheus.GaugeValue, rates.Remaining)
-	ch <- prometheus.MustNewConstMetric(e.APIMetrics["Reset"], prometheus.GaugeValue, rates.Reset)
+	if e.GitHubRateLimitEnabled && rates != nil {
+		for _, r := range *rates {
+			ch <- prometheus.MustNewConstMetric(e.APIMetrics["Limit"], prometheus.GaugeValue, r.Limit, r.Resource)
+			ch <- prometheus.MustNewConstMetric(e.APIMetrics["Remaining"], prometheus.GaugeValue, r.Remaining, r.Resource)
+			ch <- prometheus.MustNewConstMetric(e.APIMetrics["Reset"], prometheus.GaugeValue, r.Reset, r.Resource)
+		}
+	}
 
 	return nil
 }
