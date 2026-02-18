@@ -18,7 +18,7 @@ import (
 )
 
 func TestHomepage(t *testing.T) {
-	test, collector := apiTest(withConfig("a/b"))
+	test, collector := apiTest(withConfig())
 	defer prometheus.Unregister(&collector)
 
 	test.Get("/").
@@ -29,14 +29,20 @@ func TestHomepage(t *testing.T) {
 }
 
 func TestGithubExporter(t *testing.T) {
-	test, collector := apiTest(withConfig("myOrg/myRepo"))
+	test, collector := apiTest(withConfig())
 	defer prometheus.Unregister(&collector)
 
 	test.Mocks(
 		githubRepos(),
-		githubRateLimit(),
 		githubReleases(),
 		githubPulls(),
+		githubUserRepos(),
+		githubUserReleases(),
+		githubUserPulls(),
+		githubOrgRepos(),
+		githubReleases(),
+		githubPulls(),
+		githubRateLimit(),
 	).
 		Get("/metrics").
 		Expect(t).
@@ -65,12 +71,22 @@ func TestGithubExporter(t *testing.T) {
 		Assert(bodyContains(`github_repo_release_downloads{created_at="2019-02-28T08:25:53Z",name="myRepo_1.3.0_windows_amd64.tar.gz",release="1.3.0",repo="myRepo",tag="1.3.0",user="myOrg"} 21`)).
 		Assert(bodyContains(`github_repo_release_downloads{created_at="2019-05-02T15:22:16Z",name="myRepo_2.0.0_checksums.txt",release="2.0.0",repo="myRepo",tag="2.0.0",user="myOrg"} 14564`)).
 		Assert(bodyContains(`github_repo_release_downloads{created_at="2019-05-02T15:22:16Z",name="myRepo_2.0.0_windows_amd64.tar.gz",release="2.0.0",repo="myRepo",tag="2.0.0",user="myOrg"} 55`)).
+		Assert(bodyContains(`github_repo_forks{archived="false",fork="false",language="Go",license="mit",private="false",repo="myRepo",user="myUser"} 10`)).
+		Assert(bodyContains(`github_repo_pull_request_count{repo="myRepo",user="myUser"} 3`)).
+		Assert(bodyContains(`github_repo_open_issues{archived="false",fork="false",language="Go",license="mit",private="false",repo="myRepo",user="myUser"} 2`)).
+		Assert(bodyContains(`github_repo_size_kb{archived="false",fork="false",language="Go",license="mit",private="false",repo="myRepo",user="myUser"} 946`)).
+		Assert(bodyContains(`github_repo_stars{archived="false",fork="false",language="Go",license="mit",private="false",repo="myRepo",user="myUser"} 120`)).
+		Assert(bodyContains(`github_repo_watchers{archived="false",fork="false",language="Go",license="mit",private="false",repo="myRepo",user="myUser"} 5`)).
+		Assert(bodyContains(`github_repo_release_downloads{created_at="2019-02-28T08:25:53Z",name="myRepo_1.3.0_checksums.txt",release="1.3.0",repo="myRepo",tag="1.3.0",user="myUser"} 7292`)).
+		Assert(bodyContains(`github_repo_release_downloads{created_at="2019-02-28T08:25:53Z",name="myRepo_1.3.0_windows_amd64.tar.gz",release="1.3.0",repo="myRepo",tag="1.3.0",user="myUser"} 21`)).
+		Assert(bodyContains(`github_repo_release_downloads{created_at="2019-05-02T15:22:16Z",name="myRepo_2.0.0_checksums.txt",release="2.0.0",repo="myRepo",tag="2.0.0",user="myUser"} 14564`)).
+		Assert(bodyContains(`github_repo_release_downloads{created_at="2019-05-02T15:22:16Z",name="myRepo_2.0.0_windows_amd64.tar.gz",release="2.0.0",repo="myRepo",tag="2.0.0",user="myUser"} 55`)).
 		Status(http.StatusOK).
 		End()
 }
 
 func TestGithubExporterHttpErrorHandling(t *testing.T) {
-	test, collector := apiTest(withConfig("myOrg/myRepo"))
+	test, collector := apiTest(withConfig())
 	defer prometheus.Unregister(&collector)
 
 	// Test that the exporter returns when an error occurs
@@ -100,8 +116,11 @@ func apiTest(conf config.Config) (*apitest.APITest, exporter.Exporter) {
 		Handler(server.Handler), exp
 }
 
-func withConfig(repos string) config.Config {
-	_ = os.Setenv("REPOS", repos)
+func withConfig() config.Config {
+	_ = os.Setenv("REPOS", "myOrg/myRepo")
+	_ = os.Setenv("ORGS", "myOrg")
+	_ = os.Setenv("USERS", "myUser")
+
 	_ = os.Setenv("GITHUB_TOKEN", "12345")
 	cfg, err := config.Init()
 	if err != nil {
@@ -116,6 +135,46 @@ func githubRepos() *apitest.Mock {
 		RespondWith().
 		Times(1).
 		Body(readFile("testdata/my_repo_response.json")).
+		Status(200).
+		End()
+}
+
+func githubUserRepos() *apitest.Mock {
+	return apitest.NewMock().
+		Get("https://api.github.com/users/myUser/repos").
+		RespondWith().
+		Times(1).
+		Body(readFile("testdata/user_repos_response.json")).
+		Status(200).
+		End()
+}
+
+func githubUserReleases() *apitest.Mock {
+	return apitest.NewMock().
+		Get("https://api.github.com/repos/myUser/myRepo/releases").
+		RespondWith().
+		Times(1).
+		Body(readFile("testdata/user_releases_response.json")).
+		Status(200).
+		End()
+}
+
+func githubUserPulls() *apitest.Mock {
+	return apitest.NewMock().
+		Get("https://api.github.com/repos/myUser/myRepo/pulls").
+		RespondWith().
+		Times(1).
+		Body(readFile("testdata/user_pulls_response.json")).
+		Status(http.StatusOK).
+		End()
+}
+
+func githubOrgRepos() *apitest.Mock {
+	return apitest.NewMock().
+		Get("https://api.github.com/orgs/myOrg/repos").
+		RespondWith().
+		Times(1).
+		Body(readFile("testdata/org_repos_response.json")).
 		Status(200).
 		End()
 }
