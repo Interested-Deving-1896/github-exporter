@@ -1,4 +1,4 @@
-ARG GOLANG_VERSION=1.26.4
+ARG GOLANG_VERSION
 FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION} AS build
 LABEL maintainer="githubexporter"
 
