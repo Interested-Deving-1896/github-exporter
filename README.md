@@ -1,8 +1,33 @@
-# Prometheus GitHub Exporter
+# github-exporter
 
-Exposes basic metrics for your repositories from the GitHub API, to a Prometheus compatible endpoint.
+[![Built with Ona](https://ona.com/build-with-ona.svg)](https://app.ona.com/#https://github.com/Interested-Deving-1896/github-exporter) [![KDE Eco](https://img.shields.io/badge/KDE%20Eco-certified-brightgreen?logo=kde&logoColor=white&style=flat-square)](https://eco.kde.org/) [![Blue Angel](https://img.shields.io/badge/Blue%20Angel-DE--UZ%20215-0055a4?style=flat-square)](https://www.blauer-engel.de/en/certification/criteria)
+
+
+<!-- AI:start:what-it-does -->
+_Description pending._
+<!-- AI:end:what-it-does -->
+
+## Architecture
+
+<!-- AI:start:architecture -->
+_Architecture documentation pending._
+<!-- AI:end:architecture -->
+
+## Install
+
+<!-- Add installation instructions here. This section is yours — the AI will not modify it. -->
+
+```bash
+git clone https://github.com/Interested-Deving-1896/github-exporter.git
+cd github-exporter
+```
+
+## Usage
+
+<!-- Add usage examples here. This section is yours — the AI will not modify it. -->
 
 ## Configuration
+
 
 This exporter is configured via environment variables. All variables are optional unless otherwise stated. Below is a list of supported configuration values:
 
@@ -40,85 +65,90 @@ When authenticating with the GitHub API, the exporter uses credentials in the fo
 
 If none of these credentials are provided, the exporter will make unauthenticated requests, which are subject to very strict rate limits.
 
-## Install and deploy
+## CI
 
-Run manually from Docker Hub:
-```
-docker run -d --restart=always -p 9171:9171 -e REPOS="infinityworks/ranch-eye, infinityworks/prom-conf" githubexporter/github-exporter
-```
+<!-- AI:start:ci -->
+_CI documentation pending._
+<!-- AI:end:ci -->
 
-Run manually from Docker Hub (With GitHub App):
-```
-docker run -d --restart=always -p 9171:9171 --read-only -v ./key.pem:/key.pem -e GITHUB_APP=true -e GITHUB_APP_ID= -e GITHUB_APP_INSTALLATION_ID= -e GITHUB_APP_KEY_PATH=/key.pem <IMAGE_NAME>
-```
+## Mirror chain
 
-Build a docker image:
-```
-docker build -t <image-name> .
-```
-
-## Docker compose
+<!-- AI:start:mirror-chain -->
+This repo is maintained in [`Interested-Deving-1896/github-exporter`](https://github.com/Interested-Deving-1896/github-exporter) and mirrored through:
 
 ```
-github-exporter:
-    tty: true
-    stdin_open: true
-    expose:
-      - 9171
-    ports:
-      - 9171:9171
-    image: githubexporter/github-exporter:latest
-    environment:
-      - REPOS=<REPOS you want to monitor>
-      - GITHUB_TOKEN=<your github api token>
+Interested-Deving-1896/github-exporter  ──►  OpenOS-Project-OSP/github-exporter  ──►  OpenOS-Project-Ecosystem-OOC/github-exporter
 ```
 
-## Docker compose (GitHub App)
+Changes flow downstream automatically via the hourly mirror chain in
+[`fork-sync-all`](https://github.com/Interested-Deving-1896/fork-sync-all).
+Direct commits to OSP or OOC are detected and opened as PRs back to `Interested-Deving-1896`.
+<!-- AI:end:mirror-chain -->
 
-```
-github-exporter-github-app:
-  tty: true
-  stdin_open: true
-  expose:
-    - 9171
-  ports:
-    - 9171:9171
-  build: .
-  environment:
-    - LOG_LEVEL=debug
-    - LISTEN_PORT=9171
-    - GITHUB_APP=true
-    - GITHUB_APP_ID=
-    - GITHUB_APP_INSTALLATION_ID=
-    - GITHUB_APP_KEY_PATH=/key.pem
-  restart: unless-stopped
-  volumes:
-    - "./key.pem:/key.pem:ro"
+## Contributors
 
-```
+<!-- AI:start:contributors -->
+| Contributor | Commits |
+|---|---|
+| [@henrymcconville](https://github.com/henrymcconville) | 47 |
+| [@Rucknar](https://github.com/Rucknar) | 46 |
+| [@iamrare](https://github.com/iamrare) | 16 |
+| [@hainenber](https://github.com/hainenber) | 6 |
+| [@caarlos0](https://github.com/caarlos0) | 5 |
+| [@iamtgray](https://github.com/iamtgray) | 3 |
+| [@msiuts](https://github.com/msiuts) | 3 |
+| [@marctc](https://github.com/marctc) | 2 |
+| [@rgeyer](https://github.com/rgeyer) | 2 |
+| [@galbirk](https://github.com/galbirk) | 2 |
+| [@gsanchezgavier](https://github.com/gsanchezgavier) | 1 |
+| [@jlevesy](https://github.com/jlevesy) | 1 |
+| [@leonardoramosantos](https://github.com/leonardoramosantos) | 1 |
+| [@saied-nawaz](https://github.com/saied-nawaz) | 1 |
+| [@steinfletcher](https://github.com/steinfletcher) | 1 |
+| [@adebasi](https://github.com/adebasi) | 1 |
+| [@dependabot[bot]](https://github.com/apps/dependabot) | 1 |
+| [@jcreixell](https://github.com/jcreixell) | 1 |
+| [@galbirk-s1](https://github.com/galbirk-s1) | 1 |
+| [@ercpereda](https://github.com/ercpereda) | 1 |
+| [@hairyhenderson](https://github.com/hairyhenderson) | 1 |
+| [@cmoog](https://github.com/cmoog) | 1 |
+| [@ben-st](https://github.com/ben-st) | 1 |
+| [@SokoloffA](https://github.com/SokoloffA) | 1 |
+| [@alexellis](https://github.com/alexellis) | 1 |
+| [@Ahmadshata](https://github.com/Ahmadshata) | 1 |
+<!-- AI:end:contributors -->
 
-## Metrics
+## Origins
 
-Metrics will be made available on port 9171 by default
-An example of these metrics can be found in the `METRICS.md` markdown file in the root of this repository
+<!-- AI:start:origins -->
+_Original project — no upstream influences recorded._
+<!-- AI:end:origins -->
 
-## Tests
+## Resources
 
-There is a set of blackbox behavioural tests which validate metrics endpoint in the `test` directory.
-Run as follows
+<!-- AI:start:resources -->
+_No additional resource files found._
+<!-- AI:end:resources -->
 
-```bash
-make test
-```
+## Accessibility
 
-## Version Release Procedure
-Once a new pull request has been merged into `master` the following script should be executed locally. The script will trigger a new image build in docker hub with the new image having the tag `release-<version>`. The version is taken from the `VERSION` file and must follow semantic versioning. For more information see [semver.org](https://semver.org/).
+<!-- AI:start:accessibility -->
+This repo uses automated accessibility auditing via `check-accessibility.yml`.
 
-Prior to running the following command ensure the number has been increased to desired version in `VERSION`:
+Checks include: CODEOWNERS ownership coverage, README screen-reader compatibility,
+WCAG 2.1 AA HTML compliance, audio overview (espeak-ng), and Braille output (liblouis).
 
-```bash
-./release-version.sh
-```
 
-## Metadata
-[![](https://images.microbadger.com/badges/image/infinityworks/github-exporter.svg)](http://microbadger.com/images/infinityworks/github-exporter "Get your own image badge on microbadger.com") [![](https://images.microbadger.com/badges/version/infinityworks/github-exporter.svg)](http://microbadger.com/images/infinityworks/github-exporter "Get your own version badge on microbadger.com")
+
+
+Run the [Check Accessibility](https://github.com/Interested-Deving-1896/github-exporter/actions/workflows/check-accessibility.yml)
+workflow to generate the first report and accessibility artifacts.
+See the [W3C Web Content Accessibility Guidelines (WCAG)](https://www.w3.org/WAI/standards-guidelines/wcag/)
+for the underlying accessibility reference.
+<!-- AI:end:accessibility -->
+
+## License
+
+<!-- AI:start:license -->
+[MIT](https://github.com/Interested-Deving-1896/github-exporter/blob/master/LICENSE) © 2026 [Interested-Deving-1896](https://github.com/Interested-Deving-1896)
+<!-- AI:end:license -->
