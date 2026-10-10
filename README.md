@@ -101,6 +101,7 @@ Direct commits to OSP or OOC are detected and opened as PRs back to `Interested-
 | [@rgeyer](https://github.com/rgeyer) | 2 |
 | [@galbirk](https://github.com/galbirk) | 2 |
 | [@gsanchezgavier](https://github.com/gsanchezgavier) | 1 |
+| [@Interested-Deving-1896](https://github.com/Interested-Deving-1896) | 1 |
 | [@jlevesy](https://github.com/jlevesy) | 1 |
 | [@leonardoramosantos](https://github.com/leonardoramosantos) | 1 |
 | [@saied-nawaz](https://github.com/saied-nawaz) | 1 |
