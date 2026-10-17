@@ -97,18 +97,18 @@ Direct commits to OSP or OOC are detected and opened as PRs back to `Interested-
 | [@caarlos0](https://github.com/caarlos0) | 5 |
 | [@iamtgray](https://github.com/iamtgray) | 3 |
 | [@msiuts](https://github.com/msiuts) | 3 |
-| [@marctc](https://github.com/marctc) | 2 |
-| [@rgeyer](https://github.com/rgeyer) | 2 |
 | [@galbirk](https://github.com/galbirk) | 2 |
-| [@gsanchezgavier](https://github.com/gsanchezgavier) | 1 |
-| [@Interested-Deving-1896](https://github.com/Interested-Deving-1896) | 1 |
-| [@jlevesy](https://github.com/jlevesy) | 1 |
-| [@leonardoramosantos](https://github.com/leonardoramosantos) | 1 |
-| [@saied-nawaz](https://github.com/saied-nawaz) | 1 |
-| [@steinfletcher](https://github.com/steinfletcher) | 1 |
-| [@adebasi](https://github.com/adebasi) | 1 |
-| [@dependabot[bot]](https://github.com/apps/dependabot) | 1 |
+| [@rgeyer](https://github.com/rgeyer) | 2 |
+| [@marctc](https://github.com/marctc) | 2 |
+| [@Interested-Deving-1896](https://github.com/Interested-Deving-1896) | 2 |
 | [@jcreixell](https://github.com/jcreixell) | 1 |
+| [@dependabot[bot]](https://github.com/apps/dependabot) | 1 |
+| [@adebasi](https://github.com/adebasi) | 1 |
+| [@steinfletcher](https://github.com/steinfletcher) | 1 |
+| [@saied-nawaz](https://github.com/saied-nawaz) | 1 |
+| [@leonardoramosantos](https://github.com/leonardoramosantos) | 1 |
+| [@jlevesy](https://github.com/jlevesy) | 1 |
+| [@gsanchezgavier](https://github.com/gsanchezgavier) | 1 |
 | [@galbirk-s1](https://github.com/galbirk-s1) | 1 |
 | [@ercpereda](https://github.com/ercpereda) | 1 |
 | [@hairyhenderson](https://github.com/hairyhenderson) | 1 |
@@ -134,18 +134,15 @@ _No additional resource files found._
 ## Accessibility
 
 <!-- AI:start:accessibility -->
-This repo uses automated accessibility auditing via `check-accessibility.yml`.
-
-Checks include: CODEOWNERS ownership coverage, README screen-reader compatibility,
-WCAG 2.1 AA HTML compliance, audio overview (espeak-ng), and Braille output (liblouis).
-
+No  was found when this README was generated. Check the
+[Actions tab](https://github.com/Interested-Deving-1896/github-exporter/actions) for repository-specific checks, and document an
+accessibility status only when a report or workflow provides evidence for it.
 
 
 
-Run the [Check Accessibility](https://github.com/Interested-Deving-1896/github-exporter/actions/workflows/check-accessibility.yml)
-workflow to generate the first report and accessibility artifacts.
+
 See the [W3C Web Content Accessibility Guidelines (WCAG)](https://www.w3.org/WAI/standards-guidelines/wcag/)
-for the underlying accessibility reference.
+for accessibility guidance.
 <!-- AI:end:accessibility -->
 
 ## License
