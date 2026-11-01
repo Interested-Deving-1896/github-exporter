@@ -58,10 +58,14 @@ func Init() (*Config, error) {
 	}
 	log.SetLevel(level)
 
-	// Trim whitespace from repositories, organisations, and users
-	cfg.Repositories = mapSlice(cfg.Repositories, strings.TrimSpace)
-	cfg.Organisations = mapSlice(cfg.Organisations, strings.TrimSpace)
-	cfg.Users = mapSlice(cfg.Users, strings.TrimSpace)
+	// Trim whitespace and drop empty entries from repositories, organisations, and users
+	cfg.Repositories = cleanList(cfg.Repositories)
+	cfg.Organisations = cleanList(cfg.Organisations)
+	cfg.Users = cleanList(cfg.Users)
+
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
 
 	// Process GitHub App config if enabled
 	if cfg.GitHubApp {
@@ -124,11 +128,41 @@ func (c *Config) GetClient() (*github.Client, error) {
 	return client, nil
 }
 
-// mapSlice applies a function to each element of a slice and returns a new slice with the results.
-func mapSlice[T any, M any](input []T, f func(T) M) []M {
-	result := make([]M, len(input))
-	for i, e := range input {
-		result[i] = f(e)
+// validate checks for values that would otherwise only fail once scraping starts.
+func (c *Config) validate() error {
+	for _, repo := range c.Repositories {
+		parts := strings.Split(repo, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return fmt.Errorf("invalid repository %q in REPOS: expected owner/repo", repo)
+		}
+	}
+
+	concurrency := []struct {
+		name  string
+		value int
+	}{
+		{"FETCH_ORGS_CONCURRENCY", c.FetchOrgsConcurrency},
+		{"FETCH_ORG_REPOS_CONCURRENCY", c.FetchOrgReposConcurrency},
+		{"FETCH_REPOS_CONCURRENCY", c.FetchReposConcurrency},
+		{"FETCH_USERS_CONCURRENCY", c.FetchUsersConcurrency},
+	}
+	for _, setting := range concurrency {
+		if setting.value < 1 {
+			return fmt.Errorf("invalid %s %d: must be at least 1", setting.name, setting.value)
+		}
+	}
+
+	return nil
+}
+
+// cleanList trims whitespace from each entry and removes any that are empty,
+// such as those left by a trailing comma.
+func cleanList(input []string) []string {
+	result := make([]string, 0, len(input))
+	for _, e := range input {
+		if e = strings.TrimSpace(e); e != "" {
+			result = append(result, e)
+		}
 	}
 	return result
 }

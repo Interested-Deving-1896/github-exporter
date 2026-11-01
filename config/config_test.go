@@ -58,7 +58,7 @@ func TestConfig(t *testing.T) {
 				"LISTEN_PORT":                 "1111",
 				"LOG_LEVEL":                   "DEBUG",
 				"API_URL":                     "https://example.com",
-				"REPOS":                       "repo1, repo2",
+				"REPOS":                       "owner/repo1, owner/repo2",
 				"ORGS":                        "org1,org2 ",
 				"USERS":                       " user1, user2 ",
 				"GITHUB_RESULTS_PER_PAGE":     "50",
@@ -79,8 +79,8 @@ func TestConfig(t *testing.T) {
 					Host:   "example.com",
 				},
 				Repositories: []string{
-					"repo1",
-					"repo2",
+					"owner/repo1",
+					"owner/repo2",
 				},
 				Organisations: []string{
 					"org1",
@@ -135,6 +135,90 @@ func TestConfig(t *testing.T) {
 				FetchUsersConcurrency:    1,
 			},
 			expectedErr: nil,
+		},
+		{
+			name: "empty list entries are removed",
+			envVars: map[string]string{
+				"REPOS": "owner/repo1,",
+				"ORGS":  ",org1, ,",
+				"USERS": " ",
+			},
+			expectedCfg: &Config{
+				MetricsPath: "/metrics",
+				ListenPort:  "9171",
+				LogLevel:    "INFO",
+				ApiUrl: &url.URL{
+					Scheme: "https",
+					Host:   "api.github.com",
+				},
+				Repositories:             []string{"owner/repo1"},
+				Organisations:            []string{"org1"},
+				Users:                    []string{},
+				GitHubResultsPerPage:     100,
+				GitHubRateLimitEnabled:   true,
+				FetchRepoReleasesEnabled: true,
+				FetchOrgsConcurrency:     1,
+				FetchOrgReposConcurrency: 1,
+				FetchReposConcurrency:    1,
+				FetchUsersConcurrency:    1,
+			},
+			expectedErr: nil,
+		},
+		{
+			name:        "repository without owner",
+			expectedCfg: nil,
+			envVars: map[string]string{
+				"REPOS": "repo1",
+			},
+			expectedErr: errors.New(`invalid repository "repo1" in REPOS: expected owner/repo`),
+		},
+		{
+			name:        "repository with empty name",
+			expectedCfg: nil,
+			envVars: map[string]string{
+				"REPOS": "owner/",
+			},
+			expectedErr: errors.New(`invalid repository "owner/" in REPOS: expected owner/repo`),
+		},
+		{
+			name:        "repository with too many parts",
+			expectedCfg: nil,
+			envVars: map[string]string{
+				"REPOS": "owner/repo/extra",
+			},
+			expectedErr: errors.New(`invalid repository "owner/repo/extra" in REPOS: expected owner/repo`),
+		},
+		{
+			name:        "zero orgs concurrency",
+			expectedCfg: nil,
+			envVars: map[string]string{
+				"FETCH_ORGS_CONCURRENCY": "0",
+			},
+			expectedErr: errors.New("invalid FETCH_ORGS_CONCURRENCY 0: must be at least 1"),
+		},
+		{
+			name:        "zero org repos concurrency",
+			expectedCfg: nil,
+			envVars: map[string]string{
+				"FETCH_ORG_REPOS_CONCURRENCY": "0",
+			},
+			expectedErr: errors.New("invalid FETCH_ORG_REPOS_CONCURRENCY 0: must be at least 1"),
+		},
+		{
+			name:        "zero repos concurrency",
+			expectedCfg: nil,
+			envVars: map[string]string{
+				"FETCH_REPOS_CONCURRENCY": "0",
+			},
+			expectedErr: errors.New("invalid FETCH_REPOS_CONCURRENCY 0: must be at least 1"),
+		},
+		{
+			name:        "negative users concurrency",
+			expectedCfg: nil,
+			envVars: map[string]string{
+				"FETCH_USERS_CONCURRENCY": "-1",
+			},
+			expectedErr: errors.New("invalid FETCH_USERS_CONCURRENCY -1: must be at least 1"),
 		},
 		{
 			name:        "invalid url",
@@ -205,7 +289,7 @@ func TestGetClient(t *testing.T) {
 				"LISTEN_PORT":                 "1111",
 				"LOG_LEVEL":                   "DEBUG",
 				"API_URL":                     "https://example.com",
-				"REPOS":                       "repo1, repo2",
+				"REPOS":                       "owner/repo1, owner/repo2",
 				"ORGS":                        "org1,org2 ",
 				"USERS":                       " user1, user2 ",
 				"GITHUB_RESULTS_PER_PAGE":     "50",

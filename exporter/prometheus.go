@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/go-github/v76/github"
@@ -27,34 +28,15 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	log.Info("collecting metrics")
 	var data []*Datum
 
-	repoMetrics, err := e.getRepoMetrics(ctx)
-	if err != nil {
-		log.Errorf("getting repository metrics: %v", err)
-		return
-	}
+	data = append(data, e.getRepoMetrics(ctx)...)
+	data = append(data, e.getUserMetrics(ctx)...)
+	data = append(data, e.getOrgMetrics(ctx)...)
 
-	data = append(data, repoMetrics...)
-
-	userMetrics, err := e.getUserMetrics(ctx)
-	if err != nil {
-		log.Errorf("getting user metrics: %v", err)
-		return
-	}
-
-	data = append(data, userMetrics...)
-
-	orgMetrics, err := e.getOrgMetrics(ctx)
-	if err != nil {
-		log.Errorf("getting organisation metrics: %v", err)
-		return
-	}
-
-	data = append(data, orgMetrics...)
-
+	// Rate limits are still exported when repositories fail, as an exhausted
+	// quota is a likely cause
 	r, err := e.getRateLimits(ctx)
 	if err != nil {
 		log.Errorf("getting rate limit metrics: %v", err)
-		return
 	}
 
 	// Refresh client if rate limit threshold enabled
@@ -140,11 +122,13 @@ func (e *Exporter) rateLimitRefresh(rates *[]RateLimit) {
 	}
 }
 
-// getRepoMetrics fetches metrics for the configured repositories
-func (e *Exporter) getRepoMetrics(ctx context.Context) ([]*Datum, error) {
+// getRepoMetrics fetches metrics for the configured repositories. Repositories
+// that fail are logged and left out, so they don't affect the others.
+func (e *Exporter) getRepoMetrics(ctx context.Context) []*Datum {
 	var data []*Datum
+	var mu sync.Mutex
 
-	gRepos, rCtx := errgroup.WithContext(ctx)
+	var gRepos errgroup.Group
 	gRepos.SetLimit(e.FetchReposConcurrency)
 
 	for _, m := range e.Repositories {
@@ -152,112 +136,117 @@ func (e *Exporter) getRepoMetrics(ctx context.Context) ([]*Datum, error) {
 			// Split the repository string into owner and name
 			parts := strings.Split(m, "/")
 			if len(parts) != 2 {
-				return fmt.Errorf("invalid repository format: %s", m)
+				log.Errorf("invalid repository format: %s", m)
+				return nil
 			}
 
 			log.Debugf("Fetching data for repository: %s", m)
-			repo, _, err := e.Client.Repositories.Get(rCtx, parts[0], parts[1])
+			repo, _, err := e.Client.Repositories.Get(ctx, parts[0], parts[1])
 			if err != nil {
-				return fmt.Errorf("fetching repository data: %v", err)
+				log.Errorf("fetching repository data for %s: %v", m, err)
+				return nil
 			}
 
 			d, err := e.parseRepo(ctx, *repo)
 			if err != nil {
-				return fmt.Errorf("parsing repository data: %v", err)
+				log.Errorf("parsing repository data for %s: %v", m, err)
+				return nil
 			}
 
+			mu.Lock()
+			defer mu.Unlock()
 			data = append(data, d)
 			return nil
 		})
 	}
 
-	err := gRepos.Wait()
-	if err != nil {
-		return nil, fmt.Errorf("processing repositories: %v", err)
-	}
+	_ = gRepos.Wait()
 
-	return data, nil
+	return data
 }
 
-// getUserMetrics fetches metrics for the configured users
-func (e *Exporter) getUserMetrics(ctx context.Context) ([]*Datum, error) {
+// getUserMetrics fetches metrics for the configured users. Users and
+// repositories that fail are logged and left out, so they don't affect the others.
+func (e *Exporter) getUserMetrics(ctx context.Context) []*Datum {
 	var data []*Datum
+	var mu sync.Mutex
 
-	gUsers, uCtx := errgroup.WithContext(ctx)
+	var gUsers errgroup.Group
 	gUsers.SetLimit(e.FetchUsersConcurrency)
 
 	for _, m := range e.Users {
 		gUsers.Go(func() error {
 			log.Debugf("Fetching data for user: %s", m)
-			repos, _, err := e.Client.Repositories.ListByUser(uCtx, m, nil)
+			repos, _, err := e.Client.Repositories.ListByUser(ctx, m, nil)
 			if err != nil {
-				return fmt.Errorf("fetching user data: %v", err)
+				log.Errorf("fetching user data for %s: %v", m, err)
+				return nil
 			}
 
 			for _, repo := range repos {
 				d, err := e.parseListedRepo(ctx, repo)
 				if err != nil {
-					return fmt.Errorf("parsing user repository data: %v", err)
+					log.Errorf("parsing user repository data for %s: %v", repo.GetFullName(), err)
+					continue
 				}
 
+				mu.Lock()
 				data = append(data, d)
+				mu.Unlock()
 			}
 			return nil
 		})
 	}
 
-	err := gUsers.Wait()
-	if err != nil {
-		return nil, fmt.Errorf("processing users: %v", err)
-	}
+	_ = gUsers.Wait()
 
-	return data, nil
+	return data
 }
 
-// getOrgMetrics fetches metrics for the configured organisations
-func (e *Exporter) getOrgMetrics(ctx context.Context) ([]*Datum, error) {
+// getOrgMetrics fetches metrics for the configured organisations. Organisations
+// and repositories that fail are logged and left out, so they don't affect the others.
+func (e *Exporter) getOrgMetrics(ctx context.Context) []*Datum {
 	var data []*Datum
+	var mu sync.Mutex
 
-	gOrgs, oCtx := errgroup.WithContext(ctx)
+	var gOrgs errgroup.Group
 	gOrgs.SetLimit(e.FetchOrgsConcurrency)
 
 	for _, m := range e.Organisations {
 		gOrgs.Go(func() error {
 			log.Debugf("Fetching data for organisation: %s", m)
-			repos, _, err := e.Client.Repositories.ListByOrg(oCtx, m, nil)
+			repos, _, err := e.Client.Repositories.ListByOrg(ctx, m, nil)
 			if err != nil {
-				return fmt.Errorf("fetching organisation data: %v", err)
+				log.Errorf("fetching organisation data for %s: %v", m, err)
+				return nil
 			}
 
-			gRepos, rCtx := errgroup.WithContext(ctx)
+			var gRepos errgroup.Group
 			gRepos.SetLimit(e.FetchOrgReposConcurrency)
 
 			for _, repo := range repos {
 				gRepos.Go(func() error {
-					d, err := e.parseListedRepo(rCtx, repo)
+					d, err := e.parseListedRepo(ctx, repo)
 					if err != nil {
-						return fmt.Errorf("parsing organisation repository data: %w", err)
+						log.Errorf("parsing organisation repository data for %s: %v", repo.GetFullName(), err)
+						return nil
 					}
 
+					mu.Lock()
+					defer mu.Unlock()
 					data = append(data, d)
 					return nil
 				})
 			}
 
-			err = gRepos.Wait()
-			if err != nil {
-				return fmt.Errorf("processing organisation repositories: %v", err)
-			}
+			_ = gRepos.Wait()
 			return nil
 		})
 	}
 
-	err := gOrgs.Wait()
-	if err != nil {
-		return nil, fmt.Errorf("processing organisations: %v", err)
-	}
+	_ = gOrgs.Wait()
 
-	return data, nil
+	return data
 }
 
 // parseListedRepo fetches the full repository before parsing it, as list

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/githubexporter/github-exporter/config"
@@ -45,72 +46,212 @@ func newTestExporter(cfg config.Config) *Exporter {
 	}
 }
 
-// TestCollectDoesNotPanic checks that a scrape ends cleanly, with no metrics,
-// when a GitHub API response can't be used. A panic in Collect would crash the
-// exporter.
-func TestCollectDoesNotPanic(t *testing.T) {
-	const repo = `{"name":"myRepo","owner":{"login":"myOrg"}}`
-	const forbidden = `{"message":"Resource not accessible by personal access token"}`
+// newCollectExporter returns an exporter for cfg that sends requests to server.
+func newCollectExporter(t *testing.T, server *httptest.Server, cfg config.Config) *Exporter {
+	t.Helper()
 
-	responses := map[string]string{
-		"/repos/myOrg/myRepo":          repo,
-		"/users/myOrg/repos":           "[" + repo + "]",
-		"/orgs/myOrg/repos":            "[" + repo + "]",
-		"/repos/myOrg/myRepo/releases": "[]",
-		"/repos/myOrg/myRepo/pulls":    "[]",
-		"/rate_limit":                  `{"resources":{"core":{"limit":1,"remaining":1,"reset":1}}}`,
+	baseURL, err := url.Parse(server.URL + "/")
+	require.NoError(t, err)
+
+	cfg.GitHubRateLimitEnabled = true
+	cfg.FetchRepoReleasesEnabled = true
+	cfg.FetchReposConcurrency = max(cfg.FetchReposConcurrency, 1)
+	cfg.FetchOrgsConcurrency = max(cfg.FetchOrgsConcurrency, 1)
+	cfg.FetchOrgReposConcurrency = max(cfg.FetchOrgReposConcurrency, 1)
+	cfg.FetchUsersConcurrency = max(cfg.FetchUsersConcurrency, 1)
+
+	e := newTestExporter(cfg)
+	e.APIMetrics = AddMetrics(&cfg)
+	e.Client.BaseURL = baseURL
+	return e
+}
+
+// collectCounts runs Collect and returns how many repositories and rate limit
+// resources were exported.
+func collectCounts(e *Exporter) (repos, rates int) {
+	ch := make(chan prometheus.Metric, 10000)
+	e.Collect(ch)
+	close(ch)
+
+	for m := range ch {
+		desc := m.Desc().String()
+		if strings.Contains(desc, "github_repo_stars") {
+			repos++
+		}
+		if strings.Contains(desc, "github_rate_remaining") {
+			rates++
+		}
+	}
+	return repos, rates
+}
+
+// newRepoServer mocks the GitHub API, with each organisation and user owning
+// reposPerOwner repositories. Requests to a path in failures return that status.
+func newRepoServer(t *testing.T, reposPerOwner int, failures map[string]int) *httptest.Server {
+	t.Helper()
+
+	repoJSON := func(owner, name string) string {
+		return fmt.Sprintf(`{"name":%q,"owner":{"login":%q}}`, name, owner)
+	}
+	listRepos := func(w http.ResponseWriter, r *http.Request) {
+		repos := make([]string, reposPerOwner)
+		for i := range repos {
+			repos[i] = repoJSON(r.PathValue("owner"), fmt.Sprintf("repo%d", i))
+		}
+		_, _ = fmt.Fprintf(w, "[%s]", strings.Join(repos, ","))
+	}
+	emptyList := func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, "[]")
 	}
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /orgs/{owner}/repos", listRepos)
+	mux.HandleFunc("GET /users/{owner}/repos", listRepos)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/releases", emptyList)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls", emptyList)
+	mux.HandleFunc("GET /repos/{owner}/{repo}", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, repoJSON(r.PathValue("owner"), r.PathValue("repo")))
+	})
+	mux.HandleFunc("GET /rate_limit", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `{"resources":{"core":{"limit":5000,"remaining":0,"reset":1}}}`)
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if status, ok := failures[r.URL.Path]; ok {
+			w.WriteHeader(status)
+			_, _ = fmt.Fprint(w, `{"message":"request failed"}`)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// TestCollectHandlesFailures checks that a failed request only removes the
+// metrics that depend on it. A panic in Collect would crash the exporter.
+func TestCollectHandlesFailures(t *testing.T) {
 	tests := []struct {
-		name   string
-		path   string
-		status int
-		body   string
+		name      string
+		path      string
+		status    int
+		wantRepos int
+		wantRates int
 	}{
-		{"repository forbidden", "/repos/myOrg/myRepo", http.StatusForbidden, forbidden},
-		{"user repositories forbidden", "/users/myOrg/repos", http.StatusForbidden, forbidden},
-		{"organisation repositories forbidden", "/orgs/myOrg/repos", http.StatusForbidden, forbidden},
-		{"releases forbidden", "/repos/myOrg/myRepo/releases", http.StatusForbidden, forbidden},
-		{"pull requests forbidden", "/repos/myOrg/myRepo/pulls", http.StatusForbidden, forbidden},
-		{"rate limit forbidden", "/rate_limit", http.StatusForbidden, forbidden},
-		{"rate limit without resources", "/rate_limit", http.StatusOK, `{}`},
+		{"repository forbidden", "/repos/myOrg/repo0", http.StatusForbidden, 0, 1},
+		{"user repositories forbidden", "/users/myOrg/repos", http.StatusForbidden, 1, 1},
+		{"organisation repositories forbidden", "/orgs/myOrg/repos", http.StatusForbidden, 1, 1},
+		{"releases forbidden", "/repos/myOrg/repo0/releases", http.StatusForbidden, 0, 1},
+		{"pull requests forbidden", "/repos/myOrg/repo0/pulls", http.StatusForbidden, 0, 1},
+		{"rate limit forbidden", "/rate_limit", http.StatusForbidden, 1, 0},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == tt.path {
-					w.WriteHeader(tt.status)
-					_, _ = fmt.Fprint(w, tt.body)
-					return
-				}
-				_, _ = fmt.Fprint(w, responses[r.URL.Path])
-			}))
-			defer server.Close()
+			server := newRepoServer(t, 1, map[string]int{tt.path: tt.status})
+			e := newCollectExporter(t, server, config.Config{
+				Repositories:  []string{"myOrg/repo0"},
+				Organisations: []string{"myOrg"},
+				Users:         []string{"myOrg"},
+			})
 
-			baseURL, err := url.Parse(server.URL + "/")
-			require.NoError(t, err)
-
-			cfg := config.Config{
-				Repositories:             []string{"myOrg/myRepo"},
-				Organisations:            []string{"myOrg"},
-				Users:                    []string{"myOrg"},
-				GitHubRateLimitEnabled:   true,
-				FetchRepoReleasesEnabled: true,
-				FetchReposConcurrency:    1,
-				FetchOrgsConcurrency:     1,
-				FetchOrgReposConcurrency: 1,
-				FetchUsersConcurrency:    1,
-			}
-			e := newTestExporter(cfg)
-			e.APIMetrics = AddMetrics(&cfg)
-			e.Client.BaseURL = baseURL
-
-			ch := make(chan prometheus.Metric, 100)
-			assert.NotPanics(t, func() { e.Collect(ch) })
-			assert.Empty(t, ch)
+			var repos, rates int
+			assert.NotPanics(t, func() { repos, rates = collectCounts(e) })
+			assert.Equal(t, tt.wantRepos, repos)
+			assert.Equal(t, tt.wantRates, rates)
 		})
 	}
+
+	t.Run("rate limit without resources", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = fmt.Fprint(w, `{}`)
+		}))
+		defer server.Close()
+		e := newCollectExporter(t, server, config.Config{})
+
+		var rates int
+		assert.NotPanics(t, func() { _, rates = collectCounts(e) })
+		assert.Zero(t, rates)
+	})
+}
+
+func TestCollectSkipsFailures(t *testing.T) {
+	const blocked = http.StatusUnavailableForLegalReasons
+
+	t.Run("repository in REPOS", func(t *testing.T) {
+		server := newRepoServer(t, 0, map[string]int{"/repos/o/bad/pulls": blocked})
+		e := newCollectExporter(t, server, config.Config{Repositories: []string{"o/one", "o/bad", "o/two"}})
+
+		repos, rates := collectCounts(e)
+		assert.Equal(t, 2, repos)
+		assert.Equal(t, 1, rates)
+	})
+
+	t.Run("repository in organisation", func(t *testing.T) {
+		server := newRepoServer(t, 3, map[string]int{"/repos/o/repo1/pulls": blocked})
+		e := newCollectExporter(t, server, config.Config{Organisations: []string{"o"}})
+
+		repos, rates := collectCounts(e)
+		assert.Equal(t, 2, repos)
+		assert.Equal(t, 1, rates)
+	})
+
+	t.Run("repository owned by user", func(t *testing.T) {
+		server := newRepoServer(t, 3, map[string]int{"/repos/u/repo1/pulls": blocked})
+		e := newCollectExporter(t, server, config.Config{Users: []string{"u"}})
+
+		repos, rates := collectCounts(e)
+		assert.Equal(t, 2, repos)
+		assert.Equal(t, 1, rates)
+	})
+
+	t.Run("organisation and user", func(t *testing.T) {
+		server := newRepoServer(t, 2, map[string]int{
+			"/orgs/badOrg/repos":   http.StatusNotFound,
+			"/users/badUser/repos": http.StatusNotFound,
+		})
+		e := newCollectExporter(t, server, config.Config{
+			Organisations: []string{"badOrg", "goodOrg"},
+			Users:         []string{"badUser", "goodUser"},
+		})
+
+		repos, rates := collectCounts(e)
+		assert.Equal(t, 4, repos)
+		assert.Equal(t, 1, rates)
+	})
+
+	t.Run("invalid repository format", func(t *testing.T) {
+		server := newRepoServer(t, 0, nil)
+		e := newCollectExporter(t, server, config.Config{Repositories: []string{"invalid", "o/one"}})
+
+		repos, _ := collectCounts(e)
+		assert.Equal(t, 1, repos)
+	})
+}
+
+// TestCollectConcurrent checks no repositories are lost when fetched
+// concurrently. Run with -race to also detect unsynchronised access.
+func TestCollectConcurrent(t *testing.T) {
+	server := newRepoServer(t, 50, nil)
+
+	repositories := make([]string, 50)
+	for i := range repositories {
+		repositories[i] = fmt.Sprintf("r/repo%d", i)
+	}
+
+	e := newCollectExporter(t, server, config.Config{
+		Repositories:             repositories,
+		Organisations:            []string{"o1", "o2"},
+		Users:                    []string{"u1", "u2"},
+		FetchReposConcurrency:    8,
+		FetchOrgsConcurrency:     2,
+		FetchOrgReposConcurrency: 8,
+		FetchUsersConcurrency:    2,
+	})
+
+	repos, rates := collectCounts(e)
+	assert.Equal(t, 250, repos)
+	assert.Equal(t, 1, rates)
 }
 
 func TestRateLimitRefresh(t *testing.T) {

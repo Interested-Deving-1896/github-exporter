@@ -30,6 +30,8 @@ This exporter is configured via environment variables. All variables are optiona
 | `METRICS_PATH`                | The HTTP path to expose Prometheus metrics.                                        | `/metrics`               |
 | `LOG_LEVEL`                   | Logging level (`debug`, `info`, `warn`, `error`).                                  | `info`                   |
 
+The exporter exits at startup if an entry in `REPOS` isn't in `owner/repo` format, or if a `FETCH_*_CONCURRENCY` value is below `1`. Empty entries in `REPOS`, `ORGS` and `USERS`, such as those left by a trailing comma, are ignored.
+
 ### Credential Precedence
 
 When authenticating with the GitHub API, the exporter uses credentials in the following order of precedence:
@@ -75,7 +77,7 @@ The Metadata permission is included automatically in fine-grained tokens and Git
 
 ### Limitations
 
-* **A missing permission fails the whole scrape.** If any request fails, the exporter logs the error and returns no repository metrics for that scrape, not just those for the affected repository. For example, a token without Contents access on one private repository loses metrics for all repositories unless `FETCH_REPO_RELEASES_ENABLED=false` is set.
+* **A missing permission leaves out the affected repositories.** If a request fails, the exporter logs the error and leaves that repository out of the scrape, while other repositories and rate limit metrics are still exported. For example, a token without Contents access on one private repository loses that repository's metrics unless `FETCH_REPO_RELEASES_ENABLED=false` is set. If listing an organization's or user's repositories fails, all of its repositories are left out.
 * **`USERS` only finds public repositories**, whatever the credentials. List private repositories owned by a user in `REPOS` instead.
 * **Fine-grained tokens and GitHub Apps cover private repositories for one account.** A fine-grained token has a single resource owner, and `GITHUB_APP_INSTALLATION_ID` selects a single installation. To monitor private repositories across several accounts, use a classic token or run one exporter per account.
 * **`ORGS` only returns the private repositories the credentials can access.** Others are silently left out rather than causing an error.

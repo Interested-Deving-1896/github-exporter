@@ -139,7 +139,7 @@ func TestGithubExporterHttpErrorHandling(t *testing.T) {
 	test, collector := apiTest(withConfig())
 	defer prometheus.Unregister(&collector)
 
-	// Test that the exporter returns when an error occurs
+	// Test that the exporter still responds when an error occurs
 	// Ideally a new gauge should be added to keep track of scrape errors
 	// following prometheus exporter guidelines
 	test.Mocks(
